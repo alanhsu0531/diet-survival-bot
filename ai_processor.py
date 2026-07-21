@@ -3,41 +3,49 @@
 # ============================================================
 #
 # 本模組負責：
-#   1. 呼叫本地 OmniRoute 伺服器（相容於 OpenAI API 格式）
+#   1. 呼叫 OpenRouter API（相容於 OpenAI API 格式）
+#      也支援其他 OpenAI 相容 API（如 OmniRoute 本機開發用）
 #   2. 提供兩種 AI 分析模式：
 #      A. 防禦模式（菜單破譯）— 搭配照片與文字給出低卡建議
 #      B. 結算模式（毒舌紀錄）— 辨識便當、估算營養、毒舌評語
 #   3. 使用正規表達式清洗 AI 生成的中文標籤
 #
-# OmniRoute 預設位址：http://localhost:20128/v1
-# 若需要修改，請調整下方的 OMNIROUTE_BASE_URL
+# 預設使用 OpenRouter 免費 API，只需在環境變數中設定 API Key。
+# 若本機有 OmniRoute，將 OMNIROUTE_BASE_URL 改回本機位址即可。
 # ============================================================
 
 import os
 import re
 import json
-import time
 import logging
 from typing import Any, Optional
 
 from dotenv import load_dotenv
 import requests
 
-# 載入 .env 環境變數
+# 載入 .env 環境變數（本機開發用，Render 直接用環境變數）
 load_dotenv()
 
 # ---------- 日誌設定 ----------
 logger = logging.getLogger(__name__)
 
-# ---------- OmniRoute 伺服器設定 ----------
-# 【注意】如果你的 OmniRoute 伺服器在其他位址或連接埠，
-# 請修改下方的網址，或設定環境變數 OMNIROUTE_BASE_URL
-OMNIROUTE_BASE_URL = os.getenv("OMNIROUTE_BASE_URL", "http://localhost:20128/v1")
+# ---------- API 伺服器設定 ----------
+# 預設使用 OpenRouter 免費 API（須設定 OPENROUTER_API_KEY）
+# 若本地有 OmniRoute，可改為 http://localhost:20128/v1
+OMNIROUTE_BASE_URL = os.getenv("OMNIROUTE_BASE_URL", "https://openrouter.ai/api/v1")
 
-# 建議使用的模型名稱（OmniRoute combo 路由模式）
-# 可用的模型名稱範例：auto/best-fast, auto/best-chat, auto/best-vision, auto/best-coding
-# 請依你的 OmniRoute 設定調整
-MODEL_NAME = os.getenv("AI_MODEL", "auto/best-fast")
+# OpenRouter 免費模型推薦：
+#   google/gemini-2.0-flash-exp    — Google 免費模型，快又準 ✅ 推薦
+#   mistralai/mistral-7b-instruct  — Mistral 7B 免費
+#   meta-llama/llama-3.2-3b-instruct — Llama 3.2 免費
+#
+# 【注意】若你有 OpenAI/Anthropic API Key，也可改為：
+#   gpt-4o-mini
+#   claude-sonnet-4-20250514
+MODEL_NAME = os.getenv("AI_MODEL", "google/gemini-2.0-flash-exp")
+
+# OpenRouter API Key（Render 環境變數中設定）
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 
 # ============================================================
@@ -72,16 +80,12 @@ def clean_tags(tags: list[str]) -> list[str]:
         >>> clean_tags(["牛肉麵(名詞)", " 美味(形容詞) ", "跑步", "低卡"])
         ['牛肉麵', '美味', '跑步', '低卡']
     """
-    # 此正規表達式會匹配全形（）與半形 () 及其內部所有文字
     pattern = re.compile(r"\s*[（(][^)）]*[）)]\s*")
 
     cleaned = []
     for tag in tags:
-        # 移除詞性標記
         cleaned_tag = pattern.sub("", tag)
-        # 移除前後空白
         cleaned_tag = cleaned_tag.strip()
-        # 過濾空字串
         if cleaned_tag:
             cleaned.append(cleaned_tag)
 
@@ -103,7 +107,6 @@ def build_system_prompt(defense_mode: bool) -> str:
         系統提示詞字串
     """
     if defense_mode:
-        # ---------- 防禦模式：菜單破譯 ----------
         return """你是一位毒舌但實用的減肥營養師。使用者會傳送餐廳菜單或熱量文字，
 請你分析並推薦低卡、高蛋白的餐點組合。
 
@@ -123,7 +126,6 @@ def build_system_prompt(defense_mode: bool) -> str:
 - 標籤中【不要附加詞性標記】，例如寫「低卡」而非「低卡(形容詞)」
 - 總熱量節省請給整數"""
     else:
-        # ---------- 結算模式：毒舌紀錄 ----------
         return """你是一位毒舌且幽默的減肥教練。使用者會傳送便當或餐點的照片與說明，
 請你辨識食物內容、估算營養素，並給予「毒舌」或「鼓勵」的評語。
 
@@ -165,7 +167,6 @@ def build_user_message(
     Returns:
         OpenAI API 格式的 messages 內容列表
     """
-    # 根據模式決定輔助描述文字
     if defense_mode:
         text_prefix = "請幫我分析這份菜單，給我低卡建議：\n\n"
     else:
@@ -173,7 +174,6 @@ def build_user_message(
 
     content: list[dict[str, Any]] = []
 
-    # 如果有圖片，以多模態格式附加
     if image_base64:
         content.append({
             "type": "text",
@@ -195,7 +195,7 @@ def build_user_message(
 
 
 # ============================================================
-# 呼叫 OmniRoute 伺服器（OpenAI 相容 API）
+# 呼叫 API 伺服器（OpenAI 相容格式）
 # ============================================================
 def call_omniroute(
     messages: list[dict[str, Any]],
@@ -203,14 +203,9 @@ def call_omniroute(
     max_tokens: int = 1024,
 ) -> dict[str, Any]:
     """
-    向本地 OmniRoute 伺服器發送聊天完成請求（支援 SSE 串流模式）。
+    向 API 伺服器（OpenRouter / OmniRoute）發送聊天完成請求。
 
-    OmniRoute 是 combo 路由伺服器，預設使用 SSE 串流回覆。
-    此函數會：
-      1. 發送 stream=true 的請求
-      2. 分塊讀取 SSE 資料流，依換行符分割
-      3. 合併所有 chunk 中的內容
-      4. 組裝成 OpenAI 相容的非串流回應格式
+    使用標準 OpenAI 相容的 /chat/completions 端點，非串流模式。
 
     Args:
         messages: OpenAI 格式的 messages 列表
@@ -218,7 +213,7 @@ def call_omniroute(
         max_tokens: 最大生成 token 數
 
     Returns:
-        組裝後的 API 回應（OpenAI 非串流格式）
+        API 回傳的完整 JSON 回應（dict 格式）
 
     Raises:
         requests.RequestException: API 呼叫失敗時拋出
@@ -230,144 +225,42 @@ def call_omniroute(
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "stream": True,  # OmniRoute combo 路由需要串流模式
+        "stream": False,  # 非串流模式，OpenRouter 與 OpenAI 都支援
     }
 
     headers = {
         "Content-Type": "application/json",
     }
 
-    logger.info(f"呼叫 OmniRoute (SSE): model={MODEL_NAME}, url={url}")
+    # ---------- OpenRouter 專用 Headers ----------
+    # 只有在 OMNIROUTE_BASE_URL 指向 OpenRouter 時才需要
+    if "openrouter.ai" in OMNIROUTE_BASE_URL.lower():
+        if not OPENROUTER_API_KEY:
+            logger.warning(
+                "OPENROUTER_API_KEY 未設定！請在 Render 環境變數中新增。"
+            )
+        headers["Authorization"] = f"Bearer {OPENROUTER_API_KEY}"
+        # 以下兩個 Header 是 OpenRouter 建議提供的辨識資訊
+        headers["HTTP-Referer"] = "https://github.com/alanhsu0531/diet-survival-bot"
+        headers["X-Title"] = "AI 減肥生存管家"
 
-    # 發送串流請求
+    logger.info(f"呼叫 API: model={MODEL_NAME}, url={url}")
+
     response = requests.post(
-        url, json=payload, headers=headers, timeout=180, stream=True
+        url, json=payload, headers=headers, timeout=60
     )
+
+    # 若 API 回傳錯誤，記錄詳細資訊
+    if response.status_code != 200:
+        logger.error(
+            f"API 錯誤 (status={response.status_code}): {response.text[:300]}"
+        )
     response.raise_for_status()
 
-    # 解析 SSE 串流，合併所有 chunk
-    full_content = ""
-    finish_reason = None
-    usage_data = None
-    response_model = MODEL_NAME
+    result = response.json()
+    logger.debug(f"API 回應摘要: {json.dumps(result, ensure_ascii=False)[:200]}...")
 
-    # 使用大塊讀取（4096 bytes）以避免 UTF-8 中文字被截斷損毀
-    # 保留未完成行在緩衝區中，遇到換行時才處理
-    buffer = ""
-    for chunk in response.iter_content(chunk_size=4096):
-        if chunk is None:
-            continue
-
-        # 將 bytes 解碼為字串
-        decoded = chunk.decode("utf-8", errors="replace")
-        buffer += decoded
-
-        # 依換行符分割緩衝區
-        while "\n" in buffer:
-            line, buffer = buffer.split("\n", 1)
-            line = line.strip()
-
-            if not line:
-                continue
-
-            # SSE 註解行（以 : 開頭）直接跳過
-            if line.startswith(":"):
-                continue
-
-            # 資料行必須以 "data: " 開頭
-            if not line.startswith("data: "):
-                continue
-
-            data_str = line[6:]  # 去掉 "data: " 前綴
-            if data_str.strip() == "[DONE]":
-                break
-
-            try:
-                chunk_data = json.loads(data_str)
-            except json.JSONDecodeError:
-                continue
-
-            # 更新模型名稱
-            chunk_model = chunk_data.get("model")
-            if chunk_model:
-                response_model = chunk_model
-
-            # 累加 content delta
-            # 【重要】OmniRoute 的不同模型會使用不同的欄位名稱：
-            #   - OpenAI 標準: delta.content
-            #   - DeepSeek/推理模型: delta.reasoning, delta.reasoning_content
-            #   - Claude: delta.content (部分有 delta.reasoning)
-            # 我們依序嘗試三種欄位，取第一個非空值
-            choices = chunk_data.get("choices", [])
-            for choice in choices:
-                delta = choice.get("delta", {})
-                content_text = (
-                    delta.get("content")
-                    or delta.get("reasoning")
-                    or delta.get("reasoning_content")
-                    or ""
-                )
-                if content_text:
-                    full_content += content_text
-
-                # 記錄 finish_reason
-                fr = choice.get("finish_reason")
-                if fr:
-                    finish_reason = fr
-
-            # 記錄用量資訊
-            usage = chunk_data.get("usage")
-            if usage:
-                usage_data = usage
-
-        # 如果 buffer 中還有 [DONE]，處理它
-        if "[DONE]" in buffer:
-            break
-
-    # 確保緩衝區中剩餘的資料也被處理
-    if buffer.strip():
-        line = buffer.strip()
-        if line.startswith("data: "):
-            data_str = line[6:]
-            if data_str.strip() != "[DONE]":
-                try:
-                    chunk_data = json.loads(data_str)
-                    for choice in chunk_data.get("choices", []):
-                        delta = choice.get("delta", {})
-                        content_text = (
-                            delta.get("content")
-                            or delta.get("reasoning")
-                            or delta.get("reasoning_content")
-                            or ""
-                        )
-                        if content_text:
-                            full_content += content_text
-                except (json.JSONDecodeError, KeyError):
-                    pass
-
-    logger.info(f"OmniRoute 串流完成 (model={response_model}), 共 {len(full_content)} 字元")
-
-    # 組裝成 OpenAI 非串流回應格式
-    assembled = {
-        "id": f"gen-{response_model}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": response_model,
-        "choices": [
-            {
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": full_content,
-                },
-                "finish_reason": finish_reason or "stop",
-            }
-        ],
-    }
-    if usage_data:
-        assembled["usage"] = usage_data
-
-    return assembled
+    return result
 
 
 # ============================================================
@@ -375,9 +268,9 @@ def call_omniroute(
 # ============================================================
 def parse_ai_response(api_response: dict[str, Any]) -> dict[str, Any]:
     """
-    從 OmniRoute API 的回應中提取並解析 JSON 內容。
+    從 API 的回應中提取並解析 JSON 內容。
 
-    OpenAPI 相容的回應格式為：
+    OpenAI 相容的回應格式為：
       {
         "choices": [
           {
@@ -394,7 +287,7 @@ def parse_ai_response(api_response: dict[str, Any]) -> dict[str, Any]:
       3. 若還是失敗，拋出 ValueError
 
     Args:
-        api_response: OmniRoute API 的原始回應字典
+        api_response: API 的原始回應字典
 
     Returns:
         解析後的 Python 字典
@@ -454,7 +347,7 @@ def process_with_ai(
     流程：
       1. 根據模式（防禦/結算）建構系統提示詞
       2. 建構使用者訊息（含圖片或純文字）
-      3. 呼叫 OmniRoute API
+      3. 呼叫 API
       4. 解析回傳的 JSON
       5. 【重要】傳回前會自動對 tags 進行清洗（移除詞性標記）
 
@@ -488,7 +381,7 @@ def process_with_ai(
         {"role": "user", "content": user_message_content},
     ]
 
-    # Step 4: 呼叫 OmniRoute API
+    # Step 4: 呼叫 API
     api_response = call_omniroute(messages)
 
     # Step 5: 從原始回應中提取文字，供後續使用
@@ -520,31 +413,6 @@ def process_with_ai(
                 "tags": ["請重試"],
             }
         return result
-
-    # Step 7: 驗證結果 — 檢查是否為模板佔位文字（模型未輸出實際內容）
-    # 若 recommendation 或 dish_name 的內容看起來像 system prompt 模板，
-    # 代表模型只輸出了推理文字而沒有產出最終內容
-    if defense_mode:
-        template_markers = ["你推薦的最佳低卡選擇", "原始選擇可節省"]
-        rec = result.get("recommendation", "")
-        if any(marker in rec for marker in template_markers):
-            logger.warning("AI 傳回了模板內容（模型未產出實際分析），使用推理文字作為 comment")
-            result["recommendation"] = "（暫時無法分析，請重新嘗試）"
-            result["reason"] = "AI 正在思考中，請稍後再試一次 😅"
-            # 嘗試從原始內容中提取一些文字作為 fallback
-            raw_text = api_response.get("choices", [{}])[0].get("message", {}).get("content", "")
-            if raw_text:
-                result["comment"] = raw_text[:500]
-    else:
-        template_markers = ["招牌三寶便當", "便當"]
-        dish = result.get("dish_name", "")
-        if any(marker in dish for marker in template_markers) and "三寶" not in user_text:
-            logger.warning("AI 傳回了模板內容（模型未產出實際分析）")
-            result["dish_name"] = "（暫時無法辨識，請重新嘗試）"
-            result["comment"] = "AI 正在思考中，請稍後再試一次 😅"
-            raw_text = api_response.get("choices", [{}])[0].get("message", {}).get("content", "")
-            if raw_text:
-                result["comment"] = raw_text[:500]
 
     # Step 7: 清洗標籤（移除詞性標記）
     if "tags" in result and isinstance(result["tags"], list):
