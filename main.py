@@ -322,9 +322,10 @@ def format_reply_message(data: dict, defense_mode: bool) -> str:
 
 
 # ============================================================
-# 健康檢查端點
+# 健康檢查端點（UptimeRobot 使用 HEAD 請求）
 # ============================================================
 @app.get("/health")
+@app.head("/health")
 async def health_check():
     return {"status": "ok", "service": "AI 減肥生存管家"}
 
