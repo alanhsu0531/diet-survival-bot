@@ -35,14 +35,15 @@ logger = logging.getLogger(__name__)
 OMNIROUTE_BASE_URL = os.getenv("OMNIROUTE_BASE_URL", "https://openrouter.ai/api/v1")
 
 # OpenRouter 免費模型推薦：
-#   google/gemini-2.0-flash-exp    — Google 免費模型，快又準 ✅ 推薦
-#   mistralai/mistral-7b-instruct  — Mistral 7B 免費
-#   meta-llama/llama-3.2-3b-instruct — Llama 3.2 免費
+#   google/gemma-4-31b-it:free        — Google Gemma 4 31B，品質好 ✅ 推薦
+#   google/gemma-4-26b-a4b-it:free    — 較小更快
+#   openrouter/free                   — 自動路由到最佳免費模型
+#   nvidia/nemotron-3-super-120b-a12b:free — 超大模型
 #
 # 【注意】若你有 OpenAI/Anthropic API Key，也可改為：
 #   gpt-4o-mini
 #   claude-sonnet-4-20250514
-MODEL_NAME = os.getenv("AI_MODEL", "google/gemini-2.0-flash-exp")
+MODEL_NAME = os.getenv("AI_MODEL", "openrouter/free")
 
 # OpenRouter API Key（Render 環境變數中設定）
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
@@ -240,9 +241,9 @@ def call_omniroute(
                 "OPENROUTER_API_KEY 未設定！請在 Render 環境變數中新增。"
             )
         headers["Authorization"] = f"Bearer {OPENROUTER_API_KEY}"
-        # 以下兩個 Header 是 OpenRouter 建議提供的辨識資訊
+        # OpenRouter 建議提供的辨識資訊（僅限 ASCII）
         headers["HTTP-Referer"] = "https://github.com/alanhsu0531/diet-survival-bot"
-        headers["X-Title"] = "AI 減肥生存管家"
+        headers["X-Title"] = "AI Diet Survival Bot"
 
     logger.info(f"呼叫 API: model={MODEL_NAME}, url={url}")
 
