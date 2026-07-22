@@ -12,7 +12,15 @@
 import os
 import base64
 import json
+import io
 import logging
+from typing import Optional
+
+try:
+    from PIL import Image
+    HAS_PILLOW = True
+except ImportError:
+    HAS_PILLOW = False
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
@@ -67,21 +75,41 @@ logger = logging.getLogger(__name__)
 # ============================================================
 def download_image_to_base64(message_id: str) -> Optional[str]:
     """
-    使用 Line Messaging API 下載指定 message_id 的圖片內容，
-    將其轉換為 Base64 字串後回傳。
+    使用 Line Messaging API 下載圖片，壓縮後轉為 Base64 回傳。
+    壓縮目的：減少 API 傳輸大小、加快 OpenRouter 回應速度。
     """
     try:
         with ApiClient(configuration) as api_client:
             blob_api = MessagingApiBlob(api_client)
             content = blob_api.get_message_content(message_id)
-            # 根據 sdk 版本，content 可能是 bytes 或 file-like object
             if isinstance(content, bytes):
                 image_bytes = content
             else:
                 image_bytes = content.read()
-            base64_str = base64.b64encode(image_bytes).decode("utf-8")
-            logger.info(f"圖片下載成功 ({len(image_bytes)} bytes)")
-            return base64_str
+
+        # 使用 Pillow 壓縮圖片，限制最長邊 1024px、JPEG 品質 85
+        if HAS_PILLOW:
+            img = Image.open(io.BytesIO(image_bytes))
+            max_dim = 1024
+            w, h = img.size
+            if w > max_dim or h > max_dim:
+                ratio = min(max_dim / w, max_dim / h)
+                img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+            buffer = io.BytesIO()
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img.save(buffer, format="JPEG", quality=85)
+            image_bytes = buffer.getvalue()
+            logger.info(
+                f"圖片壓縮完成 ({w}x{h} → {img.size[0]}x{img.size[1]}, "
+                f"{len(image_bytes)} bytes)"
+            )
+        else:
+            logger.info(f"圖片未壓縮 ({len(image_bytes)} bytes)")
+
+        base64_str = base64.b64encode(image_bytes).decode("utf-8")
+        logger.info(f"圖片 Base64 轉換完成 ({len(base64_str)} chars)")
+        return base64_str
     except Exception as e:
         logger.error(f"下載圖片失敗: {e}")
         return None

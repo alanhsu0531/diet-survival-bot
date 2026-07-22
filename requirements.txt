@@ -5,9 +5,10 @@
 #   pip install -r requirements.txt
 # ============================================================
 
-fastapi>=0.109.0       # 高效能 Web 框架，用於建立 Webhook 伺服器
-uvicorn[standard]>=0.27.0  # ASGI 伺服器，用來啟動 FastAPI 應用程式
-line-bot-sdk>=3.8.0    # Line Messaging API 官方 SDK
-requests>=2.31.0       # HTTP 請求套件，用於呼叫 Notion API
-python-dotenv>=1.0.0   # 讀取 .env 檔案的環境變數
-pydantic>=2.5.0        # 資料驗證，FastAPI 內建使用
+fastapi>=0.109.0          # 高效能 Web 框架，用於建立 Webhook 伺服器
+uvicorn[standard]>=0.27.0 # ASGI 伺服器，用來啟動 FastAPI 應用程式
+line-bot-sdk>=3.8.0       # Line Messaging API 官方 SDK
+requests>=2.31.0          # HTTP 請求套件，用於呼叫 Notion API
+python-dotenv>=1.0.0      # 讀取 .env 檔案的環境變數
+pydantic>=2.5.0           # 資料驗證，FastAPI 內建使用
+Pillow>=10.0.0            # 圖片壓縮，避免上傳過大檔案
