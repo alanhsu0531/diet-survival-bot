@@ -13,7 +13,6 @@ import os
 import base64
 import json
 import logging
-from io import BytesIO
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
@@ -65,32 +64,23 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # 工具函數：從 Line 伺服器下載圖片並轉為 Base64
 # ============================================================
-async def download_image_to_base64(message_id: str) -> Optional[str]:
+def download_image_to_base64(message_id: str) -> Optional[str]:
     """
     使用 Line Messaging API 下載指定 message_id 的圖片內容，
     將其轉換為 Base64 字串後回傳。
 
     需要 LINE_CHANNEL_ACCESS_TOKEN 具有效權限。
-
-    Args:
-        message_id: Line 伺服器給圖片的唯一識別碼
-
-    Returns:
-        Base64 編碼的圖片字串，若失敗則回傳 None
     """
     try:
-        # 使用官方 SDK 的 MessagingApi 來取得圖片內容
         with ApiClient(configuration) as api_client:
             messaging_api = MessagingApi(api_client)
-            # message_id 對應的圖片內容（二進位流）
             content = messaging_api.get_message_content(message_id)
-            # 將二進位內容讀入 BytesIO，再轉為 Base64
             image_bytes = content.read()
             base64_str = base64.b64encode(image_bytes).decode("utf-8")
-            logger.info(f"圖片下載成功，message_id={message_id}")
+            logger.info(f"圖片下載成功 ({len(image_bytes)} bytes)")
             return base64_str
     except Exception as e:
-        logger.error(f"下載圖片失敗 (message_id={message_id}): {e}")
+        logger.error(f"下載圖片失敗: {e}")
         return None
 
 
@@ -196,31 +186,15 @@ def handle_text_message(event: MessageEvent) -> None:
 def handle_image_message(event: MessageEvent) -> None:
     """
     處理使用者傳送的圖片訊息（ImageMessage）。
-
-    流程：
-      1. 下載圖片並轉為 Base64
-      2. 呼叫 AI 模組，以結算模式分析圖片中的食物
-      3. 將結果寫入 Notion 資料庫
-      4. 回覆使用者分析結果
     """
     reply_token = event.reply_token
     user_id = event.source.user_id
     message_id = event.message.id
 
-    logger.info(f"收到圖片訊息 (user={user_id}, message_id={message_id})")
+    logger.info(f"收到圖片訊息 (user={user_id})")
 
-    # 【注意】在 FastAPI 的非同步環境下，handler 是同步 callback
-    # 我們使用 sync-to-async bridge 來下載圖片
-    import asyncio
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        image_base64 = loop.run_until_complete(
-            download_image_to_base64(message_id)
-        )
-    finally:
-        loop.close()
+    # 使用同步方式下載圖片
+    image_base64 = download_image_to_base64(message_id)
 
     if image_base64 is None:
         reply_text = "圖片處理失敗了 😢，請重新上傳一次！"
