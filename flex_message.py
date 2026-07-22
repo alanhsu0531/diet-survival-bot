@@ -49,7 +49,7 @@ COLOR_BORDER = "#F0F0F0"      # 邊框淺灰
 # ============================================================
 def _text(text: str, size: str = "md", weight: str = "regular",
            color: str = COLOR_TEXT, wrap: bool = True, align: str = "start",
-           flex: int = 0) -> dict:
+           flex: int = 0, margin: str = None) -> dict:
     """建立 Flex Text 元件"""
     item: dict = {
         "type": "text",
@@ -63,6 +63,8 @@ def _text(text: str, size: str = "md", weight: str = "regular",
         item["align"] = align
     if flex:
         item["flex"] = flex
+    if margin:
+        item["margin"] = margin
     return item
 
 
