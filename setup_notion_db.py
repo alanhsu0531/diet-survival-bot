@@ -125,6 +125,29 @@ NEW_PROPERTIES = {
 
     # 記錄時間（日期）
     "記錄時間": {"date": {}},
+
+    # ====== 公式欄位（自動計算） ======
+
+    # 熱量等級（公式）
+    "熱量等級": {
+        "formula": {
+            "expression": 'if(prop("熱量 (大卡)") < 400, "低 🔵", if(prop("熱量 (大卡)") < 700, "中 🟡", "高 🔴"))'
+        }
+    },
+
+    # 蛋白質佔比（公式）
+    "蛋白質佔比": {
+        "formula": {
+            "expression": 'if(prop("熱量 (大卡)") > 0, format(round(prop("蛋白質 (g)") * 4 / prop("熱量 (大卡)") * 100)) + "%", "無資料")'
+        }
+    },
+
+    # 週次（公式）— 用於 Chart View 分組
+    "週次": {
+        "formula": {
+            "expression": 'if(prop("記錄時間") != null, formatDate(prop("記錄時間"), "YYYY-ww"), "無日期")'
+        }
+    },
 }
 
 
