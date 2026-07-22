@@ -272,31 +272,35 @@ def handle_image_message(event: MessageEvent) -> None:
 
         # 判斷是否為降級回覆（無有效資料）
         is_fallback = ai_result.get("dish_name", "").startswith("（暫時")
-        if is_fallback:
-            comment = ai_result.get("comment", "") or ""
-            summary = comment[:200] + "..." if len(comment) > 200 else comment
-            reply_text = f"🍽️ AI 分析結果：\n\n{summary}"
-            with ApiClient(configuration) as api_client:
-                messaging_api = MessagingApi(api_client)
-                messaging_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=reply_token,
-                        messages=[TextMessage(text=reply_text)],
-                    )
+        # 一律用格式化文字回覆（Flex Message 對圖片相容性問題太多）
+        import re as _re
+        comment = ai_result.get("comment", "") or ""
+        comment = _re.sub(r'[#*`\[\]|_]+', '', comment)
+        comment = _re.sub(r'\n{3,}', '\n\n', comment)
+        lines = [f"🍽️ {ai_result.get('dish_name', '餐點')}"]
+        if "calories" in ai_result:
+            lines.append(f"🔥 {ai_result['calories']} 大卡")
+        if "protein" in ai_result or "fat" in ai_result or "carbs" in ai_result:
+            p = ai_result.get('protein', 0)
+            f_ = ai_result.get('fat', 0)
+            c = ai_result.get('carbs', 0)
+            lines.append(f"🥩 {p}g蛋白  🧈 {f_}g脂肪  🍚 {c}g碳水")
+        if comment:
+            lines.append(f"")
+            lines.append(f"💬 {comment[:300]}")
+        tags = ai_result.get("tags", [])
+        if tags:
+            lines.append(f"")
+            lines.append(f"{'  '.join('#' + t for t in tags[:4])}")
+        reply_text = "\n".join(lines)
+        with ApiClient(configuration) as api_client:
+            messaging_api = MessagingApi(api_client)
+            messaging_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text=reply_text)],
                 )
-        else:
-            flex_msg = build_flex_message(ai_result, defense_mode=False)
-            with ApiClient(configuration) as api_client:
-                messaging_api = MessagingApi(api_client)
-                messaging_api.reply_message(
-                    ReplyMessageRequest(
-                        reply_token=reply_token,
-                        messages=[FlexMessage(
-                            alt_text=flex_msg["altText"],
-                            contents=flex_msg["contents"],
-                        )],
-                    )
-                )
+            )
 
     except Exception as e:
         logger.error(f"AI 圖片處理錯誤: {e}")
