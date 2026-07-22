@@ -270,31 +270,48 @@ def handle_image_message(event: MessageEvent) -> None:
         except Exception as e:
             logger.error(f"Notion 寫入失敗: {e}")
 
-        # Flex Message 回覆
-        flex_msg = build_flex_message(ai_result, defense_mode=False)
-        with ApiClient(configuration) as api_client:
-            messaging_api = MessagingApi(api_client)
-            messaging_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=reply_token,
-                    messages=[FlexMessage(
-                        alt_text=flex_msg["altText"],
-                        contents=flex_msg["contents"],
-                    )],
+        # 判斷是否為降級回覆（無有效資料）
+        is_fallback = ai_result.get("dish_name", "").startswith("（暫時")
+        if is_fallback:
+            comment = ai_result.get("comment", "") or ""
+            summary = comment[:200] + "..." if len(comment) > 200 else comment
+            reply_text = f"🍽️ AI 分析結果：\n\n{summary}"
+            with ApiClient(configuration) as api_client:
+                messaging_api = MessagingApi(api_client)
+                messaging_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=reply_token,
+                        messages=[TextMessage(text=reply_text)],
+                    )
                 )
-            )
+        else:
+            flex_msg = build_flex_message(ai_result, defense_mode=False)
+            with ApiClient(configuration) as api_client:
+                messaging_api = MessagingApi(api_client)
+                messaging_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=reply_token,
+                        messages=[FlexMessage(
+                            alt_text=flex_msg["altText"],
+                            contents=flex_msg["contents"],
+                        )],
+                    )
+                )
 
     except Exception as e:
         logger.error(f"AI 圖片處理錯誤: {e}")
         reply_text = "分析圖片時好像出了點問題 🤔，再試一次吧！"
-        with ApiClient(configuration) as api_client:
-            messaging_api = MessagingApi(api_client)
-            messaging_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=reply_token,
-                    messages=[TextMessage(text=reply_text)],
+        try:
+            with ApiClient(configuration) as api_client:
+                messaging_api = MessagingApi(api_client)
+                messaging_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=reply_token,
+                        messages=[TextMessage(text=reply_text)],
+                    )
                 )
-            )
+        except Exception as reply_err:
+            logger.error(f"回覆失敗（可能 token 已過期）: {reply_err}")
 
 
 # ============================================================
