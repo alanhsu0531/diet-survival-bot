@@ -45,6 +45,10 @@ OMNIROUTE_BASE_URL = os.getenv("OMNIROUTE_BASE_URL", "https://openrouter.ai/api/
 #   claude-sonnet-4-20250514
 MODEL_NAME = os.getenv("AI_MODEL", "openrouter/free")
 
+# 圖片用視覺模型（支援多模態輸入的免費模型）
+# nvidia/nemotron-nano-12b-v2-vl:free 支援 Vision-Language
+VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free"
+
 # OpenRouter API Key（Render 環境變數中設定）
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
@@ -220,6 +224,7 @@ def call_omniroute(
     messages: list[dict[str, Any]],
     temperature: float = 0.3,
     max_tokens: int = 1024,
+    model: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     向 API 伺服器（OpenRouter / OmniRoute）發送聊天完成請求。
@@ -239,12 +244,13 @@ def call_omniroute(
     """
     url = f"{OMNIROUTE_BASE_URL}/chat/completions"
 
+    effective_model = model or MODEL_NAME
     payload = {
-        "model": MODEL_NAME,
+        "model": effective_model,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "stream": False,  # 非串流模式，OpenRouter 與 OpenAI 都支援
+        "stream": False,
     }
 
     headers = {
@@ -353,12 +359,44 @@ def parse_ai_response(api_response: dict[str, Any]) -> dict[str, Any]:
 
 
 # ============================================================
+# 圖片專用 AI 處理入口（使用視覺模型）
+# ============================================================
+def process_with_ai_image(
+    user_text: str,
+    image_base64: str,
+    defense_mode: bool = False,
+) -> dict[str, Any]:
+    """
+    給圖片專用的 AI 處理，使用 VISION_MODEL 確保模型支援圖片辨識。
+    若圖片模型失敗，會自動降級為一般模型重試一次。
+    """
+    # 先用視覺模型嘗試
+    try:
+        return process_with_ai(
+            user_text=user_text,
+            image_base64=image_base64,
+            defense_mode=defense_mode,
+            model_override=VISION_MODEL,
+        )
+    except Exception as e:
+        logger.warning(f"視覺模型 ({VISION_MODEL}) 失敗: {e}，降級為一般模型")
+        # 降級為一般 model 再試一次
+        return process_with_ai(
+            user_text=user_text,
+            image_base64=image_base64,
+            defense_mode=defense_mode,
+            model_override=None,
+        )
+
+
+# ============================================================
 # 主要 AI 處理入口
 # ============================================================
 def process_with_ai(
     user_text: str,
     image_base64: Optional[str] = None,
     defense_mode: bool = False,
+    model_override: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     整合 AI 處理流程的對外接口。
@@ -401,7 +439,7 @@ def process_with_ai(
     ]
 
     # Step 4: 呼叫 API
-    api_response = call_omniroute(messages)
+    api_response = call_omniroute(messages, model=model_override)
 
     # Step 5: 從原始回應中提取文字，供後續使用
     raw_text = api_response.get("choices", [{}])[0].get("message", {}).get("content", "")
