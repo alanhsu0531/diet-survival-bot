@@ -69,15 +69,16 @@ def download_image_to_base64(message_id: str) -> Optional[str]:
     """
     使用 Line Messaging API 下載指定 message_id 的圖片內容，
     將其轉換為 Base64 字串後回傳。
-
-    需要 LINE_CHANNEL_ACCESS_TOKEN 具有效權限。
     """
     try:
         with ApiClient(configuration) as api_client:
-            # 注意：下載二進位內容（圖片）需使用 MessagingApiBlob
             blob_api = MessagingApiBlob(api_client)
             content = blob_api.get_message_content(message_id)
-            image_bytes = content.read()
+            # 根據 sdk 版本，content 可能是 bytes 或 file-like object
+            if isinstance(content, bytes):
+                image_bytes = content
+            else:
+                image_bytes = content.read()
             base64_str = base64.b64encode(image_bytes).decode("utf-8")
             logger.info(f"圖片下載成功 ({len(image_bytes)} bytes)")
             return base64_str
