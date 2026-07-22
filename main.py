@@ -43,8 +43,6 @@ from linebot.v3.webhooks import (
 )
 
 # ---------- 匯入自訂模組 ----------
-from typing import Optional
-
 from ai_processor import process_with_ai, clean_tags
 from notion_writer import create_notion_page
 
