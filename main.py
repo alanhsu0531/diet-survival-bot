@@ -241,18 +241,33 @@ def handle_text_message(event: MessageEvent) -> None:
         except Exception as e:
             logger.error(f"Notion: {e}")
 
-        # 回覆
-        is_fallback = ai_result.get("dish_name","").startswith("（") or ai_result.get("recommendation","").startswith("（")
-        if is_fallback:
-            comment = ai_result.get("comment","") or ai_result.get("reason","") or ""
-            reply_text(reply_token, f"{'🥗' if is_defense else '🍽️'} AI 分析：\n\n{comment[:300]}")
+        # 一律用文字回覆（Flex Message 相容性問題太多）
+        import re as _re
+        if is_defense:
+            rec = ai_result.get("recommendation", "")
+            reason = ai_result.get("reason", "")
+            saved = ai_result.get("calories_saved", "")
+            tag_str = "  ".join("#" + t for t in ai_result.get("tags", []))
+            lines = [f"🥗 防禦模式 · 菜單破譯"]
+            if rec: lines.append(f"\n✅ 推薦：{rec}")
+            if reason: lines.append(f"💡 {reason}")
+            if saved: lines.append(f"🔥 省 {saved} 大卡")
+            if tag_str: lines.append(f"\n{tag_str}")
+            reply_text(reply_token, "\n".join(lines))
         else:
-            flex_msg = build_flex_message(ai_result, is_defense)
-            with ApiClient(configuration) as api_client:
-                MessagingApi(api_client).reply_message(
-                    ReplyMessageRequest(reply_token=reply_token, messages=[
-                        FlexMessage(alt_text=flex_msg["altText"], contents=flex_msg["contents"])
-                    ]))
+            name = ai_result.get("dish_name", "餐點")
+            cal = ai_result.get("calories", 0)
+            p = ai_result.get("protein", 0)
+            f_ = ai_result.get("fat", 0)
+            c = ai_result.get("carbs", 0)
+            comment = ai_result.get("comment", "")
+            tag_str = "  ".join("#" + t for t in ai_result.get("tags", []))
+            comment = _re.sub(r'[#*`\[\]|_]+', '', comment)
+            comment = _re.sub(r'\n{3,}', '\n\n', comment)
+            lines = [f"🍽️ {name}", f"🔥 {cal} 大卡  🥩 {p}g  🧈 {f_}g  🍚 {c}g"]
+            if comment: lines.append(f"\n💬 {comment[:200]}")
+            if tag_str: lines.append(f"\n{tag_str}")
+            reply_text(reply_token, "\n".join(lines))
     except Exception as e:
         logger.error(f"AI 錯誤: {e}")
         reply_text(reply_token, "哎呀，大腦短路了一下 😵，再傳一次試試！")
