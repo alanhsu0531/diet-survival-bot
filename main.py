@@ -24,6 +24,7 @@ from linebot.v3.messaging import (
     Configuration,
     ApiClient,
     MessagingApi,
+    MessagingApiBlob,
     ReplyMessageRequest,
     TextMessage,
 )
@@ -73,8 +74,9 @@ def download_image_to_base64(message_id: str) -> Optional[str]:
     """
     try:
         with ApiClient(configuration) as api_client:
-            messaging_api = MessagingApi(api_client)
-            content = messaging_api.get_message_content(message_id)
+            # 注意：下載二進位內容（圖片）需使用 MessagingApiBlob
+            blob_api = MessagingApiBlob(api_client)
+            content = blob_api.get_message_content(message_id)
             image_bytes = content.read()
             base64_str = base64.b64encode(image_bytes).decode("utf-8")
             logger.info(f"圖片下載成功 ({len(image_bytes)} bytes)")
