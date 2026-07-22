@@ -35,6 +35,7 @@ from linebot.v3.messaging import (
     MessagingApiBlob,
     ReplyMessageRequest,
     TextMessage,
+    FlexMessage,
 )
 from linebot.v3.webhooks import (
     MessageEvent,
@@ -45,6 +46,7 @@ from linebot.v3.webhooks import (
 # ---------- 匯入自訂模組 ----------
 from ai_processor import process_with_ai, clean_tags
 from notion_writer import create_notion_page
+from flex_message import build_flex_message
 
 # ---------- 載入環境變數 ----------
 load_dotenv()
@@ -193,22 +195,33 @@ def handle_text_message(event: MessageEvent) -> None:
         except Exception as e:
             logger.error(f"Notion 寫入失敗: {e}")
 
-        # 整理回覆訊息
-        reply_text = format_reply_message(ai_result, is_defense_mode)
+        # 傳送 Flex Message 卡片回覆
+        flex_msg = build_flex_message(ai_result, is_defense_mode)
+        reply_message = FlexMessage(
+            alt_text=flex_msg["altText"],
+            contents=flex_msg["contents"],
+        )
+        with ApiClient(configuration) as api_client:
+            messaging_api = MessagingApi(api_client)
+            messaging_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[reply_message],
+                )
+            )
 
     except Exception as e:
         logger.error(f"AI 處理發生錯誤: {e}")
+        # 錯誤時用純文字回覆
         reply_text = "哎呀，我的大腦短路了一下 😵，請再傳一次試試看！"
-
-    # 透過 Line API 回覆使用者
-    with ApiClient(configuration) as api_client:
-        messaging_api = MessagingApi(api_client)
-        messaging_api.reply_message(
-            ReplyMessageRequest(
-                reply_token=reply_token,
-                messages=[TextMessage(text=reply_text)],
+        with ApiClient(configuration) as api_client:
+            messaging_api = MessagingApi(api_client)
+            messaging_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text=reply_text)],
+                )
             )
-        )
 
 
 @handler.add(MessageEvent, message=ImageMessageContent)
@@ -257,25 +270,35 @@ def handle_image_message(event: MessageEvent) -> None:
         except Exception as e:
             logger.error(f"Notion 寫入失敗: {e}")
 
-        reply_text = format_reply_message(ai_result, defense_mode=False)
+        # Flex Message 回覆
+        flex_msg = build_flex_message(ai_result, defense_mode=False)
+        with ApiClient(configuration) as api_client:
+            messaging_api = MessagingApi(api_client)
+            messaging_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[FlexMessage(
+                        alt_text=flex_msg["altText"],
+                        contents=flex_msg["contents"],
+                    )],
+                )
+            )
 
     except Exception as e:
         logger.error(f"AI 圖片處理錯誤: {e}")
         reply_text = "分析圖片時好像出了點問題 🤔，再試一次吧！"
-
-    # 回覆使用者
-    with ApiClient(configuration) as api_client:
-        messaging_api = MessagingApi(api_client)
-        messaging_api.reply_message(
-            ReplyMessageRequest(
-                reply_token=reply_token,
-                messages=[TextMessage(text=reply_text)],
+        with ApiClient(configuration) as api_client:
+            messaging_api = MessagingApi(api_client)
+            messaging_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text=reply_text)],
+                )
             )
-        )
 
 
 # ============================================================
-# 回覆訊息格式化
+# 回覆訊息格式化（預留給純文字降級使用）
 # ============================================================
 def format_reply_message(data: dict, defense_mode: bool) -> str:
     """
