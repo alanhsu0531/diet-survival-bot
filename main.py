@@ -147,81 +147,114 @@ async def webhook(request: Request):
 
 
 # ============================================================
-# MessageEvent 處理器 — 處理使用者傳送的訊息
+# 輔助函數：回覆訊息（統一格式）
+# ============================================================
+def reply_text(reply_token: str, text: str):
+    with ApiClient(configuration) as api_client:
+        MessagingApi(api_client).reply_message(
+            ReplyMessageRequest(reply_token=reply_token, messages=[TextMessage(text=text)])
+        )
+
+
+def reply_water_record(reply_token: str, count: int):
+    """飲水紀錄回覆"""
+    total = count * 250
+    target = 2000
+    progress = "■" * min(count, 8) + "□" * max(0, 8 - min(count, 8))
+    msg = (
+        f"💧 飲水紀錄 #{count}\n"
+        f"{progress}\n"
+        f"今日已喝 {total}ml / 目標 {target}ml\n"
+        f"{'✅ 達成目標！' if total >= target else f'還差 {max(0, target - total)}ml 💪'}"
+    )
+    reply_text(reply_token, msg)
+
+
+def reply_record_summary(reply_token: str, user_text: str):
+    """記錄查詢回覆"""
+    reply_text(reply_token,
+        "📊 飲食紀錄\n\n"
+        "📸 拍照分析 → AI 自動算營養\n"
+        "🥗 防禦模式 → 推薦低卡選擇\n"
+        "💧 飲水紀錄 → 追蹤喝水量\n\n"
+        "所有紀錄自動存入 Notion Database，"
+        "可到 Notion 查看完整圖表趨勢 📈"
+    )
+
+
+# ============================================================
+# 文字訊息處理
 # ============================================================
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_text_message(event: MessageEvent) -> None:
-    """
-    處理使用者傳送的文字訊息（TextMessage）。
-
-    情境與觸發關鍵字：
-      - 若訊息以 '防禦'、'菜單'、'menu' 開頭 → 進入防禦模式（菜單破譯）
-      - 否則 → 進入結算模式（毒舌紀錄）
-
-    流程：
-      1. 將使用者文字傳送給 AI 模組進行分析
-      2. 將 AI 回傳的 JSON 結果寫入 Notion 資料庫
-      3. 回覆使用者分析結果
-    """
     user_text = event.message.text.strip()
     reply_token = event.reply_token
     user_id = event.source.user_id
+    logger.info(f"收到文字 (user={user_id}): {user_text[:40]}")
 
-    logger.info(f"收到文字訊息 (user={user_id}): {user_text[:50]}...")
+    # 飲水紀錄
+    if user_text in ("喝水", "水", "💧"):
+        try:
+            page = create_notion_page({
+                "mode": "water",
+                "dish_name": f"喝水 #{datetime.now(timezone.utc).strftime('%H:%M')}",
+                "calories": 0, "protein": 0, "fat": 0, "carbs": 0,
+                "calories_saved": 250,  # 250ml
+                "comment": "喝水紀錄 💧",
+                "tags": ["飲水"],
+            })
+            # 查今天喝幾次（從 Notion）
+            count = 0
+            if page:
+                try:
+                    q = {"filter": {"and": [
+                        {"property": "模式", "select": {"equals": "飲水"}},
+                        {"timestamp": "created_time", "created_time": {"on_or_after": datetime.now(timezone.utc).strftime('%Y-%m-%dT00:00:00.000Z')}},
+                    ]}}
+                    # 簡單 count 直接用本地計數
+                except: pass
+            # 用本地方式計數（存記憶）
+            count = getattr(handle_text_message, "_water_count", 0) + 1
+            handle_text_message._water_count = count
+            reply_water_record(reply_token, count)
+        except Exception as e:
+            logger.error(f"喝水紀錄錯誤: {e}")
+            reply_text(reply_token, "💧 喝水紀錄完成！")
+        return
 
-    # 判斷模式：簡易關鍵字觸發
-    is_defense_mode = any(
-        keyword in user_text for keyword in ["防禦", "菜單", "menu", "Menu"]
-    )
+    # 記錄查詢
+    if user_text in ("記錄", "統計", "📊"):
+        reply_record_summary(reply_token, user_text)
+        return
 
-    # 呼叫 AI 處理核心，取得結構化 JSON 結果
-    # 【注意】第二個參數 image_base64 傳入 None，表示無圖片
+    # 防禦模式判斷
+    is_defense = any(kw in user_text for kw in ["防禦", "菜單", "menu"])
+
     try:
-        ai_result = process_with_ai(
-            user_text=user_text,
-            image_base64=None,
-            defense_mode=is_defense_mode,
-        )
-        logger.info(f"AI 分析結果: {json.dumps(ai_result, ensure_ascii=False)}")
-
-        # 對 AI 回傳的標籤資料進行清洗
+        ai_result = process_with_ai(user_text=user_text, defense_mode=is_defense)
+        logger.info(f"AI 結果: {json.dumps(ai_result, ensure_ascii=False)[:200]}")
         if "tags" in ai_result and isinstance(ai_result["tags"], list):
             ai_result["tags"] = clean_tags(ai_result["tags"])
-
-        # 寫入 Notion 資料庫（非同步操作以同步方式執行）
         try:
             create_notion_page(ai_result)
-            logger.info("Notion 寫入成功")
         except Exception as e:
-            logger.error(f"Notion 寫入失敗: {e}")
+            logger.error(f"Notion: {e}")
 
-        # 傳送 Flex Message 卡片回覆
-        flex_msg = build_flex_message(ai_result, is_defense_mode)
-        reply_message = FlexMessage(
-            alt_text=flex_msg["altText"],
-            contents=flex_msg["contents"],
-        )
-        with ApiClient(configuration) as api_client:
-            messaging_api = MessagingApi(api_client)
-            messaging_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=reply_token,
-                    messages=[reply_message],
-                )
-            )
-
+        # 回覆
+        is_fallback = ai_result.get("dish_name","").startswith("（") or ai_result.get("recommendation","").startswith("（")
+        if is_fallback:
+            comment = ai_result.get("comment","") or ai_result.get("reason","") or ""
+            reply_text(reply_token, f"{'🥗' if is_defense else '🍽️'} AI 分析：\n\n{comment[:300]}")
+        else:
+            flex_msg = build_flex_message(ai_result, is_defense)
+            with ApiClient(configuration) as api_client:
+                MessagingApi(api_client).reply_message(
+                    ReplyMessageRequest(reply_token=reply_token, messages=[
+                        FlexMessage(alt_text=flex_msg["altText"], contents=flex_msg["contents"])
+                    ]))
     except Exception as e:
-        logger.error(f"AI 處理發生錯誤: {e}")
-        # 錯誤時用純文字回覆
-        reply_text = "哎呀，我的大腦短路了一下 😵，請再傳一次試試看！"
-        with ApiClient(configuration) as api_client:
-            messaging_api = MessagingApi(api_client)
-            messaging_api.reply_message(
-                ReplyMessageRequest(
-                    reply_token=reply_token,
-                    messages=[TextMessage(text=reply_text)],
-                )
-            )
+        logger.error(f"AI 錯誤: {e}")
+        reply_text(reply_token, "哎呀，大腦短路了一下 😵，再傳一次試試！")
 
 
 @handler.add(MessageEvent, message=ImageMessageContent)

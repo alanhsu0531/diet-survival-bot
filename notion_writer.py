@@ -92,11 +92,9 @@ def build_notion_properties(data: dict[str, Any]) -> dict[str, Any]:
     }
 
     # ---- 模式 ----
-    properties["模式"] = {
-        "select": {
-            "name": "防禦模式" if data.get("mode") == "defense" else "結算模式"
-        }
-    }
+    mode = data.get("mode", "")
+    mode_name = {"defense": "防禦模式", "water": "飲水"}.get(mode, "結算模式")
+    properties["模式"] = {"select": {"name": mode_name}}
 
     # ---- 熱量（數字） ----
     calories = safe_int(data.get("calories"))
@@ -104,7 +102,10 @@ def build_notion_properties(data: dict[str, Any]) -> dict[str, Any]:
         properties["熱量 (大卡)"] = {"number": calories}
     calories_saved = safe_int(data.get("calories_saved"))
     if calories_saved is not None:
-        properties["節省熱量 (大卡)"] = {"number": calories_saved}
+        if data.get("mode") == "water":
+            properties["水量 (ml)"] = {"number": calories_saved}
+        else:
+            properties["節省熱量 (大卡)"] = {"number": calories_saved}
 
     # ---- 三大營養素（數字） ----
     for nutrient_key, nutrient_label in [
