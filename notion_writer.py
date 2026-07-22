@@ -150,6 +150,33 @@ def build_notion_properties(data: dict[str, Any]) -> dict[str, Any]:
             ]
         }
 
+    # ---- 餐別（選取） ----
+    meal_type = data.get("meal_type")
+    if meal_type and meal_type in ("早餐", "午餐", "晚餐", "點心"):
+        properties["餐別"] = {"select": {"name": meal_type}}
+
+    # ---- 烹調方式（多選） ----
+    methods = data.get("cooking_methods")
+    if methods and isinstance(methods, list):
+        valid_methods = [m for m in methods if m.strip()]
+        if valid_methods:
+            properties["烹調方式"] = {
+                "multi_select": [{"name": m.strip()[:20]} for m in valid_methods]
+            }
+
+    # ---- 食材清單（純文字） ----
+    ingredients = data.get("ingredients")
+    if ingredients:
+        properties["食材清單"] = {
+            "rich_text": [{"text": {"content": ingredients[:2000]}}]
+        }
+
+    # ---- 記錄時間（日期） ----
+    from datetime import datetime, timezone
+    properties["記錄時間"] = {
+        "date": {"start": datetime.now(timezone.utc).isoformat()}
+    }
+
     return properties
 
 

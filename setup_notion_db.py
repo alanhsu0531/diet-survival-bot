@@ -89,6 +89,42 @@ NEW_PROPERTIES = {
 
     # 原始使用者輸入（純文字）
     "原始輸入": {"rich_text": {}},
+
+    # ====== 新增欄位 ======
+
+    # 餐別（選取）
+    "餐別": {
+        "select": {
+            "options": [
+                {"name": "早餐", "color": "blue"},
+                {"name": "午餐", "color": "orange"},
+                {"name": "晚餐", "color": "purple"},
+                {"name": "點心", "color": "pink"},
+            ]
+        }
+    },
+
+    # 烹調方式（多選）
+    "烹調方式": {
+        "multi_select": {
+            "options": [
+                {"name": "油炸", "color": "red"},
+                {"name": "煎", "color": "orange"},
+                {"name": "烤", "color": "brown"},
+                {"name": "蒸", "color": "blue"},
+                {"name": "煮", "color": "green"},
+                {"name": "炒", "color": "yellow"},
+                {"name": "生食", "color": "green"},
+                {"name": "燉", "color": "purple"},
+            ]
+        }
+    },
+
+    # 食材清單（純文字）
+    "食材清單": {"rich_text": {}},
+
+    # 記錄時間（日期）
+    "記錄時間": {"date": {}},
 }
 
 

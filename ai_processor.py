@@ -150,6 +150,9 @@ def build_system_prompt(defense_mode: bool) -> str:
     "protein": 35,
     "fat": 40,
     "carbs": 80,
+    "meal_type": "午餐",
+    "cooking_methods": ["油炸", "炒"],
+    "ingredients": "炸排骨、香腸、滷蛋、高麗菜、豆乾",
     "comment": "毒舌或鼓勵的評語（30~80字，語氣幽默風趣，帶一點機車但不會讓人討厭）",
     "tags": ["便當", "高熱量", "油炸", "少蔬菜"]
 }
@@ -157,6 +160,9 @@ def build_system_prompt(defense_mode: bool) -> str:
 注意事項：
 - 熱量與三大營養素請盡量合理估算，單位分別為大卡與公克 (g)
 - calories/protein/fat/carbs 請填數字（非字串），若無法判斷請填 0
+- meal_type 請依用餐時間填入：早餐/午餐/晚餐/點心
+- cooking_methods 請列出 1~3 種烹調方式：油炸/煎/烤/蒸/煮/炒/生食/燉
+- ingredients 請用頓號分隔，列出照片中可見的所有食材
 - 標籤 (tags) 請給出 2~4 個中文關鍵字，描述該餐點的健康特性
 - 標籤中【不要附加詞性標記】，例如寫「高熱量」而非「高熱量(名詞)」
 - comment 要保持毒蛇風格，但最後可以給一點建設性的建議"""
